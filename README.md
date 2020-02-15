@@ -1,12 +1,19 @@
-# YOLOv3-tf2.0
+# YoloV3_tf2.0
 
-YOLOv3 implemented with tensorflow 2.0 using keras subclassing API
+YoloV3 implemented with tensorflow 2.0 using keras subclassing API. Model subclassing gives us the flexibility to customize any kind of NN architecture not provided by the default Sequential API.
 
-### how to train on MS COCO 2014
+### convert.py
 
-download datasets by executing the following command
+This script convert any darknet weights into tensorflow .tf weights format which are needed for tensorflow.
+This should only run once whenever you want to convert any new darknet weights into .tf weights.
 
 ```Bash
-python3 download_datasets.py
+python convert.py
 ```
 
+### detect.py
+YoloV3 algorithm to perform object detections.
+
+```Bash
+python detect.py
+```
