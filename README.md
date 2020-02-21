@@ -17,3 +17,5 @@ YoloV3 algorithm to perform object detections.
 ```Bash
 python detect.py
 ```
+
+TODO..
