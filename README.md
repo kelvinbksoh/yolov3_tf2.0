@@ -20,4 +20,4 @@ python detect.py
 ```
 
 TODO..
-Writing custom loss function such as using GIOU and IOU for the bounding boxes.
+Writing custom loss function using GIOU and IOU for the bounding boxes.
