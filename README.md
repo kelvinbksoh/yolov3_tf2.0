@@ -1,6 +1,6 @@
 # YoloV3_tf2.0
 
-YoloV3 implemented with tensorflow 2.0 in an object-oriented approach using keras subclassing API. Model subclassing gives us the flexibility to customize exotic architectures not provided by the default Sequential/Functional API.
+YoloV3 implemented with tensorflow 2.0 as an object-oriented approach using keras subclassing API. Model subclassing gives us the flexibility to customize exotic architectures not provided by the default Sequential/Functional API.
 
 ### convert.py
 This script convert any darknet weights into tensorflow .tf weights format which are needed for tensorflow.
