@@ -1,25 +1,20 @@
-import numpy as np
-#from absl import flags
-#from absl.flags import FLAGS
 import tensorflow as tf
 from tensorflow.keras import Model
-# from batch_norm import BatchNormalization
 from tensorflow.keras.regularizers import l2
-
-from tensorflow.keras.layers import (
-    BatchNormalization,
-    Add,
-    Concatenate,
-    Conv2D,
-    Input,
-    LeakyReLU,
-    MaxPool2D,
-    UpSampling2D,
-    ZeroPadding2D,
-    Layer,
-)
+from anchors_constants import anchors, anchor_masks
+from tensorflow.keras.layers import (BatchNormalization, Add, Concatenate, Conv2D,
+                                     Input, LeakyReLU, UpSampling2D, Layer, ZeroPadding2D)
+from utils import yolo_boxes, yolo_nms, getFinalYoloBoxes
 
 class DarknetConv(Layer):
+    """Initialize a Darknet convolution layer
+
+    Args:
+        Layer: Subclassing from Keras layer
+        
+    Returns:
+        Tensor: Returns a tensors of shape (batch_size, grid, grid, featuremaps)
+    """
     def __init__(self, filters, kernel_size, strides=1, batch_norm=True, name=''):
         super().__init__(name=name)
         
@@ -59,6 +54,14 @@ class DarknetConv(Layer):
         return x
 
 class DarknetResidual(Layer):
+    """Initialize a Darknet Residual layer
+
+    Args:
+        Layer: Subclassing from Keras layer
+        
+    Returns:
+        Tensor: Returns a tensors of shape (batch_size, grid, grid, featuremaps)
+    """
     def __init__(self, name=''):
         super().__init__(name=name)
         
@@ -67,20 +70,24 @@ class DarknetResidual(Layer):
         # build is that it enables late variable creation based on the shape of the inputs the layer will operate on
         self.conv_1 = DarknetConv(filters=int(input_shape[-1]) // 2, kernel_size=1)
         self.conv_2 = DarknetConv(filters=int(input_shape[-1]), kernel_size=3)        
-#        self.residual = Add()
     def call(self, x):
         prev = x
         x = self.conv_1(x)
         x = self.conv_2(x)
         x = Add()([prev, x])
-#        x = self.residual([prev, x])
+        print("Residual x", x)
         return x
-    
-#    def model(self, input_shape):
-#        x = Input(shape=(input_shape))
-#        return Model(inputs=[x], outputs=self.call(x))
 
 class DarknetBlock(Model):
+    """Initialize a Darknet Block which consists a stack or multiple stack 
+       of convolution and residual layers
+
+    Args:
+        Layer: Subclassing from Keras Model
+        
+    Returns:
+        Tensor: Returns a tensors of shape (batch_size, grid, grid, featuremaps)
+    """
     def __init__(self, no_blocks, name=''):
         super().__init__(name=name)
         self.no_blocks = no_blocks        
@@ -93,6 +100,14 @@ class DarknetBlock(Model):
         return x
 
 class Darknet(Model):
+    """Initialize the feature extractor Darknet which consists of 52 convolution layers.
+    
+    Args:
+        Layer: Subclassing from Keras Model
+        
+    Returns:
+        Tensor: Returns a tensors of shape (batch_size, grid, grid, featuremaps)
+    """
     def __init__(self, name=''):
         super().__init__(name=name)
         self.dc1 = DarknetConv(32, 3, 1, True, name='conv_0')
@@ -119,7 +134,7 @@ class Darknet(Model):
         """
         Important:
             Need to determine the input shape of the first layer before the chain
-            can be propagated to the future layers
+            can be propagated to the future layers. (For debugging and visualization of the architecture.)
         """
 #        x = inputs = Input(x.shape[1:]) # (416, 416, 3) Don't pass in batch_size
 #        print(inputs)
@@ -145,6 +160,14 @@ class Darknet(Model):
         return (inputs, x_36, x_61, x)
 
 class YoloConv(Model): # TODO create a class subclassing keras.model to wrap YoloConv and YoloOutput together 
+    """Initialize the Yolo convolutions layer after the Darknet feature extractor.
+    
+    Args:
+        Layer: Subclassing from Keras Model
+        
+    Returns:
+        Tensor: Returns a tensors of shape (batch_size, grid, grid, featuremaps)
+    """ 
     def __init__(self, filters, isConcat=False, name=''):
         super().__init__(name=name) # name = 'yolo_conv'
         self.filters = filters
@@ -164,7 +187,7 @@ class YoloConv(Model): # TODO create a class subclassing keras.model to wrap Yol
         
             
     def call(self, x):
-        # first YOLo layer 13x13x1024
+        # first YOLO layer 13x13x1024
 #        x = self.yolo_conv
 #        x = self.darknet(x)
         if type(x) is tuple: # (x, x_61) or (x, x_36)
@@ -185,6 +208,15 @@ class YoloConv(Model): # TODO create a class subclassing keras.model to wrap Yol
         return x
 
 class YoloOutput(Model):
+    """Initialize the Yolo detection layer after the 5th Yolo convolution layer
+       before the final Yolo convolution layer.
+    
+    Args:
+        Layer: Subclassing from Keras Model
+        
+    Returns:
+        Tensor: Returns a tensors of shape (batch_size, grid, grid, featuremaps)
+    """ 
     def __init__(self, filters, anchors, classes, name=''):
         super().__init__(name=name)
         self.filters = filters
@@ -205,92 +237,16 @@ class YoloOutput(Model):
 
 #darknet = Darknet()
 #_ = darknet(tf.ones([1, 416, 416, 3]))                      
-    
-
-def yolo_boxes(pred, anchors, classes):
-    # pred: (batch_size, grid, grid, anchors, (x, y, w, h, obj, ...classes))
-    grid_size = tf.shape(pred)[1]
-    box_xy, box_wh, objectness, class_probs = tf.split(
-        pred, (2, 2, 1, classes), axis=-1)
-
-    print("-----------------Before sigmoid---------------------")
-    print("Box_xy:", box_xy)
-    print('Box_wh:', box_wh)
-    print("Objectness:", objectness)
-    print("class_probs:", class_probs)
-    box_xy = tf.sigmoid(box_xy)
-    objectness = tf.sigmoid(objectness)
-    class_probs = tf.sigmoid(class_probs)
-    pred_box = tf.concat((box_xy, box_wh), axis=-1)  # original xywh for loss
-    print("pred_box:", pred_box)
-
-    print("-----------------After sigmoid-----------------------")
-    print("Box_xy:", box_xy)
-    print("Objectness:", objectness)
-    print("class_probs:", class_probs)
-    print("pred_box:", pred_box)
-    
-
-    # !!! grid[x][y] == (y, x)
-    grid = tf.meshgrid(tf.range(grid_size), tf.range(grid_size))
-    grid = tf.expand_dims(tf.stack(grid, axis=-1), axis=2)  # [gx, gy, 1, 2]
-    print('Grid:', grid)
-    box_xy = (box_xy + tf.cast(grid, tf.float32)) / \
-        tf.cast(grid_size, tf.float32)
-    print('Box_xy_add', box_xy)
-    box_wh = tf.exp(box_wh) * anchors
-    print('Box_wh:', box_wh)
-    print("anchors:", anchors)
-    
-    box_x1y1 = box_xy - box_wh / 2 # Get the top left xy coordinates
-    box_x2y2 = box_xy + box_wh / 2 # Get the bottom right xy coordinates
-    print("box_x1y1:", box_x1y1)
-    print("box_x2y2:", box_x2y2)
-
-    bbox = tf.concat([box_x1y1, box_x2y2], axis=-1)
-    print('bbox: ', bbox)
-    return bbox, objectness, class_probs, pred_box # pred_box not returned for yolov3 inference
-
-def yolo_nms(outputs, classes):
-    # boxes, conf, type
-    b, c, t = [], [], []
-    print("outputs:", outputs)
-    for o in outputs:
-        b.append(tf.reshape(o[0], (tf.shape(o[0])[0], -1, tf.shape(o[0])[-1])))
-        c.append(tf.reshape(o[1], (tf.shape(o[1])[0], -1, tf.shape(o[1])[-1])))
-        t.append(tf.reshape(o[2], (tf.shape(o[2])[0], -1, tf.shape(o[2])[-1])))
-        
-    print('b[]:', b)
-    bbox = tf.concat(b, axis=1)
-    print("bbox:", bbox)    
-    confidence = tf.concat(c, axis=1)
-    class_probs = tf.concat(t, axis=1)
-
-    scores = confidence * class_probs
-    boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
-        boxes=tf.reshape(bbox, (tf.shape(bbox)[0], -1, 1, 4)),
-        scores=tf.reshape(
-            scores, (tf.shape(scores)[0], -1, tf.shape(scores)[-1])),
-        max_output_size_per_class=100, # FLAGS.yolo_max_boxes,
-        max_total_size=100, # FLAGS.yolo_max_boxes,
-        iou_threshold=0.5,# FLAGS.yolo_iou_threshold,
-        score_threshold=0.5# FLAGS.yolo_score_threshold
-    )
-
-    return boxes, scores, classes, valid_detections
-
-
-def getFinalYoloBoxes(x, anchors, classes):
-    return yolo_boxes(x, anchors, classes)
-
-
-anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
-                         (59, 119), (116, 90), (156, 198), (373, 326)],
-                        np.float32) / 416
-
-anchor_masks = np.array([[6, 7, 8], [3, 4, 5], [0, 1, 2]])
 
 class YoloV3(Model):
+    """Initialize the YoloV3 architecture
+    
+    Args:
+        Layer: Subclassing from Keras Model
+        
+    Returns:
+        Tensor: Returns a tensors of shape (batch_size, grid, grid, featuremaps)
+    """ 
     def __init__(self, anchors=anchors, masks=anchor_masks,
                  classes=1, training=False):
         super().__init__('yolov3')
@@ -343,12 +299,19 @@ class YoloV3(Model):
 #        if training:
 #            return Model(..)
         
-        
+        """
+        Preprocessing of all the predicted boxes at three scales
+            boxes_large: 13 x 13 layer for detecting large objects
+            boxes_medium: 26 x 26 layer for detecting medium objects
+            boxes_small: 52 x 52 layer for detection small objects
+        """
         boxes_large = getFinalYoloBoxes(output_large, self.anchors[self.masks[0]], self.classes)
         boxes_medium = getFinalYoloBoxes(output_medium, self.anchors[self.masks[1]], self.classes)
         boxes_small = getFinalYoloBoxes(output_small, self.anchors[self.masks[2]], self.classes)
 
         boxes_all = (boxes_large[:3], boxes_medium[:3], boxes_small[:3])
+        
+        # Perform non-max-suppresion on the boxes to remove boxes with low confidences
         outputs = yolo_nms(boxes_all, self.classes)        
         
 #        boxes, scores, classes, nums = yolo(tf.ones([1, 416, 416, 3]))
@@ -360,10 +323,9 @@ class YoloV3(Model):
         return Model(inputs=[x], outputs=self.call(x))
 
 """
-[conv_with_bn.conv \
- for conv_with_bn in yolo.get_layer('yolo_conv_blk_large').layers]
+START debugging
+    inspecting of outputs printed by each layers, sublayers and model.
 """
-
 #yolov3_list = darknet_list + flatten_tensors_list
 #darknet_conv_0 = yolo.get_layer('darknet53').layers[0].conv
 #weights_file = "./lock_only_top_view_default_1900.weights"
@@ -400,7 +362,9 @@ class YoloV3(Model):
 #
 #x = YoloConv(128)((x, x_36)) # (1, 52, 52, 25)
 #output_small = YoloOutput(128, 3, 80)(x)
-
+"""
+END debugging:
+"""
 
 
 

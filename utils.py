@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import cv2
 
+
 def resize_images(image, size):
     images = tf.image.resize(image, (size, size)) # Assuming width and heights are the same size
     images = images / 255.0 # Normalizes the image to range 0-1
@@ -19,6 +20,83 @@ def draw_outputs(img, outputs, class_names):
             class_names[int(classes[i])], objectness[i]),
             x1y1, cv2.FONT_HERSHEY_COMPLEX_SMALL, 2, (0, 0, 0), 2)
     return img
+
+def yolo_boxes(pred, anchors, classes):
+    # pred: (batch_size, grid, grid, anchors, (x, y, w, h, obj, ...classes))
+    grid_size = tf.shape(pred)[1]
+    box_xy, box_wh, objectness, class_probs = tf.split(
+        pred, (2, 2, 1, classes), axis=-1)
+
+    print("-----------------Before sigmoid---------------------")
+    print("Box_xy:", box_xy)
+    print('Box_wh:', box_wh)
+    print("Objectness:", objectness)
+    print("class_probs:", class_probs)
+    box_xy = tf.sigmoid(box_xy)
+    objectness = tf.sigmoid(objectness)
+    class_probs = tf.sigmoid(class_probs)
+    pred_box = tf.concat((box_xy, box_wh), axis=-1)  # original xywh for loss
+    print("pred_box:", pred_box)
+
+    print("-----------------After sigmoid-----------------------")
+    print("Box_xy:", box_xy)
+    print("Objectness:", objectness)
+    print("class_probs:", class_probs)
+    print("pred_box:", pred_box)
+    
+
+    # !!! grid[x][y] == (y, x)
+    grid = tf.meshgrid(tf.range(grid_size), tf.range(grid_size))
+    grid = tf.expand_dims(tf.stack(grid, axis=-1), axis=2)  # [gx, gy, 1, 2]
+    print('Grid:', grid)
+    box_xy = (box_xy + tf.cast(grid, tf.float32)) / \
+        tf.cast(grid_size, tf.float32)
+    print('Box_xy_add', box_xy)
+    box_wh = tf.exp(box_wh) * anchors
+    print('Box_wh:', box_wh)
+    print("anchors:", anchors)
+    
+    box_x1y1 = box_xy - box_wh / 2 # Get the top left xy coordinates
+    box_x2y2 = box_xy + box_wh / 2 # Get the bottom right xy coordinates
+    print("box_x1y1:", box_x1y1)
+    print("box_x2y2:", box_x2y2)
+
+    bbox = tf.concat([box_x1y1, box_x2y2], axis=-1)
+    print('bbox: ', bbox)
+    return bbox, objectness, class_probs, pred_box # pred_box not returned for yolov3 inference
+
+def yolo_nms(outputs, classes):
+    # boxes, conf, type
+    b, c, t = [], [], []
+    print("outputs:", outputs)
+    for o in outputs:
+        b.append(tf.reshape(o[0], (tf.shape(o[0])[0], -1, tf.shape(o[0])[-1])))
+        c.append(tf.reshape(o[1], (tf.shape(o[1])[0], -1, tf.shape(o[1])[-1])))
+        t.append(tf.reshape(o[2], (tf.shape(o[2])[0], -1, tf.shape(o[2])[-1])))
+        
+    print('b[]:', b)
+    bbox = tf.concat(b, axis=1)
+    print("bbox:", bbox)    
+    confidence = tf.concat(c, axis=1)
+    class_probs = tf.concat(t, axis=1)
+
+    scores = confidence * class_probs
+    boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
+        boxes=tf.reshape(bbox, (tf.shape(bbox)[0], -1, 1, 4)),
+        scores=tf.reshape(
+            scores, (tf.shape(scores)[0], -1, tf.shape(scores)[-1])),
+        max_output_size_per_class=100, # number of yolo boxes,
+        max_total_size=100, # number of yolo boxes
+        iou_threshold=0.5,# IOU threshold
+        score_threshold=0.5# score threshold
+    )
+
+    return boxes, scores, classes, valid_detections
+
+
+def getFinalYoloBoxes(x, anchors, classes):
+    return yolo_boxes(x, anchors, classes)
+
 
 def convert_darknet_weights(yolov3_list, weights_file):
     """Convert the darknet into tensorflow weights format
@@ -158,3 +236,4 @@ def initialize_yolov3_weights(model, darknet_weights, output):
     yolov3_list = darknet_list + flatten_tensors_list # Concatenate the extracted darknet layers and the Yolo layers    
     convert_darknet_weights(yolov3_list, darknet_weights) # Perform the conversion of darknet weights to .tf checkpoints
     yolo.save_weights(output) # Save the converted darknet weights to a .tf file
+    
