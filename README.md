@@ -21,3 +21,16 @@ python detect.py
 
 TODO..
 Writing custom loss function using GIOU and IOU for the bounding boxes.
+
+
+## References
+
+This is a implementation of YoloV3 for my first very own learning journey into the YoloV3 object detection algorithm. Some ideas are references from various open source YoloV3 implementation.
+
+- https://github.com/pjreddie/darknet
+    - Official YoloV3 paper.
+- https://github.com/AlexeyAB
+    - Training of the YoloV3 using the Darknet Yolo v3 Neural Networks for fast object detection.
+- https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
+- https://github.com/YunYang1994/tensorflow-yolov3
+- https://github.com/zzh8829/yolov3-tf2/ 
