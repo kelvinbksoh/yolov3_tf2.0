@@ -19,13 +19,15 @@ YoloV3 algorithm to perform object detections.
 python detect.py
 ```
 
-TODO..
-Writing custom loss function using GIOU and IOU for the bounding boxes.
+### TODO..
+- Writing custom loss function using GIOU and IOU for the bounding boxes.
+- To implement training metrics using subclassing.
+- To implement custom loss functions using subclassing.
 
 
 ## References
 
-This is a implementation of YoloV3 for my first very own learning journey into the YoloV3 object detection algorithm. Some ideas are references from various open source YoloV3 implementation.
+This is a small implementation of YoloV3 object detection algorithm for my very first own learning journey. Some ideas are references from various open source YoloV3 implementation.
 
 - https://github.com/pjreddie/darknet
     - Official YoloV3 paper.
